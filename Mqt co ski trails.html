@@ -1,0 +1,575 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Marquette County – XC Ski Trail Systems (Classic-first) + Conditions</title>
+
+
+  <!-- Leaflet -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #map { height: 100%; width: 100%; }
+
+
+    .panel {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      background: rgba(255,255,255,0.95);
+      padding: 10px 12px;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      max-width: 410px;
+    }
+    .panel h1 { font-size: 14px; margin: 0 0 8px 0; line-height: 1.2; }
+    .panel .note { font-size: 12px; color: #444; line-height: 1.25; margin-bottom: 8px; }
+    .panel .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 10px;
+      font-size: 12px;
+      color: #222;
+      margin-bottom: 8px;
+    }
+    .panel label { display: flex; align-items: center; gap: 6px; }
+    .panel .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+    .panel button {
+      border: 1px solid #bbb;
+      background: #fff;
+      padding: 6px 10px;
+      border-radius: 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .panel button:active { transform: translateY(1px); }
+    .panel .tiny { font-size: 11px; color: #666; margin-top: 8px; line-height: 1.25; }
+
+
+    a { color: #0b3d91; }
+
+
+    .leaflet-popup-content { margin: 10px 12px; }
+    .popup-title { font-weight: 800; font-size: 14px; margin-bottom: 6px; }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      margin: 0 6px 6px 0;
+      border: 1px solid #bbb;
+      background: #f7f7f7;
+    }
+    .pill.warn { border-color: #c77; background: #fff4f4; }
+    .kv { margin: 6px 0; font-size: 12px; }
+    .kv b { color: #222; }
+    ul.links { padding-left: 18px; margin: 6px 0; }
+  </style>
+</head>
+
+
+<body>
+  <div id="map"></div>
+
+
+  <div class="panel">
+    <h1>Marquette County, MI – XC Ski Systems (Classic-first) + Conditions</h1>
+    <div class="note">
+      Toggle layers, tap markers for parking/pass notes + map + current conditions. <br>
+      “Unverified/Private” means: exists as a place people ski, but I did <b>not</b> find an official grooming/map source.
+    </div>
+
+
+    <div class="controls">
+      <label><input type="checkbox" id="chkGroomedClassicOnly" checked> Groomed (classic-only)</label>
+      <label><input type="checkbox" id="chkGroomedClassicSkate" checked> Groomed (classic + skate)</label>
+      <label><input type="checkbox" id="chkSkiableMultiUse" checked> Multi-use / skiable</label>
+      <label><input type="checkbox" id="chkUnverified" checked> Unverified / private</label>
+      <label><input type="checkbox" id="chkTowns" checked> Towns / anchors</label>
+    </div>
+
+
+    <div class="buttons">
+      <button id="btnFit">Fit to county</button>
+      <button id="btnMe">Center on me</button>
+      <button id="btnAllOn">All on</button>
+      <button id="btnAllOff">All off</button>
+    </div>
+
+
+    <div class="tiny">
+      Geocoding uses OpenStreetMap’s free service (Nominatim). If a few markers load slowly, refresh on Wi-Fi.
+    </div>
+  </div>
+
+
+<script>
+  const map = L.map('map', { zoomControl: true }).setView([46.55, -87.55], 10);
+
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+
+  // Layers
+  const layerGroomedClassicOnly = L.layerGroup().addTo(map);
+  const layerGroomedClassicSkate = L.layerGroup().addTo(map);
+  const layerSkiableMultiUse = L.layerGroup().addTo(map);
+  const layerUnverified = L.layerGroup().addTo(map);
+  const layerTowns = L.layerGroup().addTo(map);
+
+
+  // Town anchors
+  const towns = [
+    { name: "Marquette", lat: 46.5436, lon: -87.3954 },
+    { name: "Negaunee", lat: 46.5005, lon: -87.6118 },
+    { name: "Ishpeming", lat: 46.4886, lon: -87.6676 },
+    { name: "Big Bay", lat: 46.8162, lon: -87.7272 },
+    { name: "Gwinn", lat: 46.2803, lon: -87.4407 }
+  ];
+  towns.forEach(t => {
+    const m = L.circleMarker([t.lat, t.lon], { radius: 6, weight: 2, fillOpacity: 0.2 });
+    m.bindTooltip(t.name, { permanent: false, direction: "top" });
+    m.addTo(layerTowns);
+  });
+
+
+  function layerFor(category) {
+    switch(category) {
+      case "groomed_classic_only": return layerGroomedClassicOnly;
+      case "groomed_classic_skate": return layerGroomedClassicSkate;
+      case "skiable_multi_use": return layerSkiableMultiUse;
+      case "unverified_private": return layerUnverified;
+      default: return layerUnverified;
+    }
+  }
+
+
+  function pill(text, warn=false) {
+    return `<span class="pill${warn ? " warn": ""}">${text}</span>`;
+  }
+
+
+  function popupHTML(p) {
+    const pills = [];
+    (p.tags || []).forEach(t => pills.push(pill(t)));
+    if (p.category === "unverified_private") pills.push(pill("Unverified/Private", true));
+
+
+    const linkList = (p.links || []).map(l => `<li><a href="${l.url}" target="_blank" rel="noopener">${l.label}</a></li>`).join("");
+    return `
+      <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;">
+        <div class="popup-title">${p.name}</div>
+        <div style="margin-bottom:6px;">${pills.join(" ")}</div>
+
+
+        ${p.skiing ? `<div class="kv"><b>Skiing:</b> ${p.skiing}</div>` : ""}
+        ${p.parking ? `<div class="kv"><b>Parking:</b> ${p.parking}</div>` : ""}
+        ${p.pass ? `<div class="kv"><b>Pass / fee:</b> ${p.pass}</div>` : ""}
+
+
+        ${linkList ? `<ul class="links">${linkList}</ul>` : ""}
+      </div>
+    `;
+  }
+
+
+  async function geocode(query) {
+    const url = "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(query);
+    const r = await fetch(url, { headers: { "Accept": "application/json" }});
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!data || !data.length) return null;
+    return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+  }
+
+
+  async function addPlace(p) {
+    let coords = null;
+
+
+    if (typeof p.lat === "number" && typeof p.lon === "number") {
+      coords = { lat: p.lat, lon: p.lon };
+    } else if (p.query) {
+      coords = await geocode(p.query);
+      if (!coords && p.fallback) coords = p.fallback;
+    } else if (p.fallback) {
+      coords = p.fallback;
+    }
+    if (!coords) return;
+
+
+    const m = L.marker([coords.lat, coords.lon]).bindPopup(popupHTML(p));
+    m.addTo(layerFor(p.category));
+  }
+
+
+  // =========================
+  // VERIFIED SYSTEMS (Marquette County)
+  // =========================
+  const places = [
+    // Blueberry Ridge – groomed (DNR listing; conditions via Travel Marquette + Sands Twp page)
+    {
+      category: "groomed_classic_skate",
+      name: "Blueberry Ridge Pathway (Sands Township)",
+      tags: ["Groomed", "Lighted loop", "Warming hut"],
+      skiing: "All 13.7 miles groomed in winter (Dec 1–Mar 31, weather permitting).",
+      parking: "Two plowed lots in season (per DNR listing).",
+      pass: "Michigan Recreation Passport typically applies for vehicle access/parking; grooming updates also posted via local channels.",
+      query: "Blueberry Ridge Pathway parking lot Marquette Michigan",
+      fallback: { lat: 46.4603, lon: -87.4253 },
+      links: [
+        { label: "DNR trail listing", url: "https://www.michigan.gov/recsearch/trails/blueberry-ridge-pathway" },
+        { label: "Trail conditions (Travel Marquette)", url: "https://www.travelmarquette.com/things-to-do/winter-activities/trail-conditions/" },
+        { label: "Sands Township page (grooming phone)", url: "https://www.sandstownshipmi.gov/parks-and-facilities/blueberry-ridge-pathway/" }
+      ]
+    },
+    // Maple Lane Ski Center (Maple Lane Sports) – Skandia
+    {
+      category: "groomed_classic_only",
+      name: "Maple Lane Ski Center (Maple Lane Sports) – Skandia",
+      tags: ["Groomed", "Classic-only", "Private"],
+      skiing: "Trails groomed for classic skiing (listed as ~11 km).",
+      parking: "On-site parking at Maple Lane Sports / Ski Center (Skandia).",
+      pass: "Private trail system—expect a day pass/trail fee or rental fees; check current policy before you go.",
+      query: "Maple Lane Sports Skandia MI",
+      fallback: { lat: 46.3665, lon: -87.2475 }, // approximate; geocoder should place it more precisely
+      links: [
+        { label: "Trail details (NordicSkiRacer)", url: "https://nordicskiracer.com/ski-trail-detail.asp?ID=59" },
+        { label: "Trail reports (SkinnySki)", url: "https://www.skinnyski.com/trails/traildetail.asp?Id=497" },
+        { label: "Facebook updates (often current)", url: "https://www.facebook.com/Steno43/" }
+      ]
+    },
+
+
+    // NTN systems – conditions via Nordic Pulse (region or centre pages)
+    {
+      category: "groomed_classic_skate",
+      name: "NTN – Forestville & Noque Trails (main trailhead area)",
+      tags: ["Groomed", "Big network"],
+      skiing: "Classic + skate grooming (network conditions vary by segment).",
+      parking: "Forestville Trailhead area; expect busy weekends when prime.",
+      pass: "NTN pass/membership supports grooming (check NTN).",
+      query: "Forestville Trailhead County Road 510 Marquette Michigan",
+      fallback: { lat: 46.58303, lon: -87.48035 },
+      links: [
+        { label: "NTN info", url: "https://www.noquetrails.org/forestville" },
+        { label: "Grooming report (Nordic Pulse – Forestville/Noque)", url: "https://nordic-pulse.com/centres/US/MI/Forestville-Noque-Trails" },
+        { label: "All NTN grooming reports (region)", url: "https://nordic-pulse.com/ski-areas/US/MI/region/Noquemanon-Trail-Network" }
+      ]
+    },
+    {
+      category: "groomed_classic_skate",
+      name: "NTN – North Trails (Tourist Park / 510 bridge side)",
+      tags: ["Groomed"],
+      skiing: "Classic + skate grooming where open; check report for what’s recently groomed.",
+      parking: "Varies by trailhead; Tourist Park area is a common access point (confirm per NTN).",
+      pass: "NTN pass/membership supports grooming (check NTN).",
+      query: "Tourist Park Marquette Michigan trailhead",
+      fallback: { lat: 46.5965, lon: -87.4290 },
+      links: [
+        { label: "Grooming report (Nordic Pulse – North Trails)", url: "https://nordic-pulse.com/centres/US/MI/North-Trails" },
+        { label: "All NTN grooming reports (region)", url: "https://nordic-pulse.com/ski-areas/US/MI/region/Noquemanon-Trail-Network" }
+      ]
+    },
+    {
+      category: "groomed_classic_skate",
+      name: "NTN – South Trails",
+      tags: ["Groomed"],
+      skiing: "Classic + skate grooming where open; check report for specific segments.",
+      parking: "South Trails trailhead areas vary (confirm per NTN).",
+      pass: "NTN pass/membership supports grooming (check NTN).",
+      query: "Noquemanon South Trails Trailhead Marquette Michigan",
+      fallback: { lat: 46.4770, lon: -87.4600 },
+      links: [
+        { label: "Grooming report (Nordic Pulse – South Trails)", url: "https://nordic-pulse.com/centres/US/MI/South-Trails" },
+        { label: "All NTN grooming reports (region)", url: "https://nordic-pulse.com/ski-areas/US/MI/region/Noquemanon-Trail-Network" }
+      ]
+    },
+    {
+      category: "groomed_classic_skate",
+      name: "NTN – Fit Strip (Marquette)",
+      tags: ["Groomed", "Often lighted"],
+      skiing: "Classic + skate grooming (conditions vary; check report).",
+      parking: "Near Park Cemetery access; local parking rules apply.",
+      pass: "NTN support/pass may apply (check NTN); Travel Marquette often echoes status.",
+      query: "Fit Strip Park Cemetery Marquette Michigan",
+      fallback: { lat: 46.55, lon: -87.4086 },
+      links: [
+        { label: "Grooming report (Nordic Pulse – Fit Strip)", url: "https://nordic-pulse.com/centres/US/MI/Fit-Strip" },
+        { label: "Trail conditions (Travel Marquette)", url: "https://www.travelmarquette.com/things-to-do/winter-activities/trail-conditions/" }
+      ]
+    },
+    {
+      category: "groomed_classic_skate",
+      name: "NTN – Big Bay Pathway",
+      tags: ["Groomed", "Scenic"],
+      skiing: "Groomed system (classic + skate where set).",
+      parking: "Big Bay access points vary; confirm per NTN guidance.",
+      pass: "NTN pass/membership supports grooming (check NTN).",
+      query: "Big Bay Pathway trailhead Big Bay Michigan",
+      fallback: { lat: 46.81557, lon: -87.74191 },
+      links: [
+        { label: "NTN Big Bay info", url: "https://www.noquetrails.org/big-bay-pathway" },
+        { label: "All NTN grooming reports (region)", url: "https://nordic-pulse.com/ski-areas/US/MI/region/Noquemanon-Trail-Network" }
+      ]
+    },
+    {
+      category: "groomed_classic_skate",
+      name: "NTN – Saux Head Ski Trails",
+      tags: ["Groomed"],
+      skiing: "Groomed trails (classic + skate where set).",
+      parking: "Access varies by season/lot; confirm on grooming report/NTN maps.",
+      pass: "NTN pass/membership supports grooming (check NTN).",
+      query: "Saux Head Ski Trails trailhead Marquette County Michigan",
+      fallback: { lat: 46.7129, lon: -87.5753 },
+      links: [
+        { label: "All NTN grooming reports (region)", url: "https://nordic-pulse.com/ski-areas/US/MI/region/Noquemanon-Trail-Network" }
+      ]
+    },
+
+
+    // Negaunee Township (Community Center + Kivela) – township maps
+    {
+      category: "groomed_classic_only",
+      name: "Negaunee Township – Community Center Trails",
+      tags: ["Classic-only", "Local grooming"],
+      skiing: "Local classic skiing loops (township-managed).",
+      parking: "Community Center lot; trails behind/adjacent to building.",
+      pass: "Local access (check township page for any seasonal notes).",
+      query: "42 East M-35 Negaunee MI 49866",
+      fallback: { lat: 46.5066, lon: -87.6060 },
+      links: [
+        { label: "Township trail system page + maps", url: "https://www.negauneetownship.org/negaunee_township_trails.php" }
+      ]
+    },
+    {
+      category: "groomed_classic_only",
+      name: "Negaunee Township – Kivela Road Recreation Area Trails",
+      tags: ["Local trails", "Township map"],
+      skiing: "Township trail loops (often used for winter skiing; check local updates).",
+      parking: "Kivela Road trailhead/parking area (see township map PDF).",
+      pass: "Local access (confirm locally).",
+      query: "Kivela Road Negaunee Michigan trailhead",
+      fallback: { lat: 46.5360, lon: -87.5660 },
+      links: [
+        { label: "Kivela Trails map (PDF)", url: "https://cms3.revize.com/revize/negauneetownship/docs/Kivela_Trails.pdf" },
+        { label: "Township trail system page", url: "https://www.negauneetownship.org/negaunee_township_trails.php" }
+      ]
+    },
+
+
+    // Anderson Lake Pathway – DNR says groomed
+    {
+      category: "groomed_classic_only",
+      name: "Anderson Lake Pathway (Gwinn area – state forest pathway)",
+      tags: ["DNR", "Groomed"],
+      skiing: "DNR notes winter grooming for XC skiing; 3 loops.",
+      parking: "Trailhead is plowed for winter access (per DNR).",
+      pass: "DNR pathway (Recreation Passport often applies for vehicle access).",
+      query: "Anderson Lake Pathway trailhead Gwinn Michigan",
+      fallback: { lat: 46.2535, lon: -87.4915 },
+      links: [
+        { label: "DNR listing (mentions groomed + plowed)", url: "https://www.michigandnr.com/parksandtrails/details.aspx?id=90&type=SFPW" },
+        { label: "Anderson Lake map (PDF)", url: "https://www.michigan.gov/recsearch/-/media/Project/Websites/recsearch/documents/MapsA-D/Anderson_Lake_Pathway.pdf" }
+      ]
+    },
+
+
+    // Kawbawgam – classic-only grooming stated by NordicSkiRacer + coordinates via OutdoorMichigan
+    {
+      category: "groomed_classic_only",
+      name: "Kawbawgam Cross Country Ski Trail (Chocolay Township)",
+      tags: ["Classic-only", "Groomed"],
+      skiing: "Groomed classic: Yes. Groomed skate: No (per trail listing).",
+      parking: "Trailhead parking near Kawbawgam Rd access (use map link).",
+      pass: "No trail fee listed on trail sources; confirm locally if anything changes.",
+      lat: 46.47981, lon: -87.22137,
+      links: [
+        { label: "OutdoorMichigan listing (lat/lon)", url: "https://outdoormichigan.org/feature/11246" },
+        { label: "NordicSkiRacer details", url: "https://www.nordicskiracer.com/ski-trail-detail.asp?ID=57" }
+      ]
+    },
+
+
+    // Ishpeming Ski Club (Norman-Juhola/Suicide Bowl) – grooming via Nordic Pulse
+    {
+      category: "groomed_classic_skate",
+      name: "Ishpeming Ski Club – Norman-Juhola Trails (Suicide Bowl)",
+      tags: ["Private/club", "Groomed"],
+      skiing: "Club-groomed XC trails (check report for trackset status).",
+      parking: "Use Ski Club’s typical access/parking areas; confirm via club updates.",
+      pass: "Often supported by club/volunteers; verify any fees/donations via club.",
+      query: "Ishpeming Ski Club Suicide Bowl trails",
+      fallback: { lat: 46.4950, lon: -87.7060 },
+      links: [
+        { label: "Grooming report (Nordic Pulse – Ishpeming Ski Club)", url: "https://nordic-pulse.com/ski-areas/US/MI/Ishpeming" },
+        { label: "Trail description (NordicSkiRacer)", url: "https://www.nordicskiracer.com/ski-trail-detail.asp?ID=65" }
+      ]
+    },
+
+
+    // Al Quaal – listed as XC ski location (grooming specifics vary; city page)
+    {
+      category: "skiable_multi_use",
+      name: "Al Quaal Recreation Area (Ishpeming)",
+      tags: ["Local trails"],
+      skiing: "Local trail network used for winter skiing; grooming specifics vary by season.",
+      parking: "Primary Al Quaal Rec Area lots.",
+      pass: "City/local rules.",
+      query: "Al Quaal Recreation Area Ishpeming MI",
+      fallback: { lat: 46.4881, lon: -87.6710 },
+      links: [
+        { label: "City page", url: "https://ishpemingcity.org/departments/parks-and-recreation/al-quaal-recreation-area-2/" }
+      ]
+    },
+
+
+    // Presque Isle – skiable city park (grooming/trackset not guaranteed)
+    {
+      category: "skiable_multi_use",
+      name: "Presque Isle Park (Marquette)",
+      tags: ["City park", "Scenic"],
+      skiing: "City park trails can be skied depending on snow/maintenance; not always trackset.",
+      parking: "Multiple park lots.",
+      pass: "City park rules.",
+      query: "Presque Isle Park Marquette MI",
+      fallback: { lat: 46.5666, lon: -87.3826 },
+      links: [
+        { label: "Park winter activities", url: "https://presqueisle.com/activities/skiing-snowshoeing/" }
+      ]
+    },
+
+
+    // IOHT – long multi-use corridor
+    {
+      category: "skiable_multi_use",
+      name: "Iron Ore Heritage Trail (IOHT)",
+      tags: ["Multi-use corridor"],
+      skiing: "Skiable in winter in places; not a dedicated trackset Nordic system.",
+      parking: "Many trailheads; use map.",
+      pass: "Varies; generally open-access segments.",
+      query: "Iron Ore Heritage Trail Marquette Michigan",
+      fallback: { lat: 46.5460, lon: -87.3950 },
+      links: [
+        { label: "IOHT winter ski info", url: "https://ironoreheritage.com/trail-activities/ski/" },
+        { label: "Trail conditions (Travel Marquette)", url: "https://www.travelmarquette.com/things-to-do/winter-activities/trail-conditions/" }
+      ]
+    },
+
+
+    // DNR multi-trail complex (Little Presque Isle / Harlow Lake / Hogback etc.) – listed as XC area
+    {
+      category: "skiable_multi_use",
+      name: "Little Presque Isle / Harlow Lake / Hogback / Songbird / Mead-Wetmore (DNR pathway complex)",
+      tags: ["DNR area", "Many trails"],
+      skiing: "DNR-managed trail complex that includes Nordic ski opportunities; grooming/trackset varies.",
+      parking: "Multiple access points depending on segment.",
+      pass: "Recreation Passport commonly applies for state-managed vehicle access.",
+      query: "Harlow Lake trailhead Marquette Michigan",
+      fallback: { lat: 46.5550, lon: -87.2700 },
+      links: [
+        { label: "OutdoorMichigan XC ski list (includes this complex)", url: "https://outdoormichigan.org/pages/home?act=Cross-country+Skiing&fid=58" }
+      ]
+    },
+
+
+    // =========================
+    // UNVERIFIED / PRIVATE (exists as “people ski there”, but no official grooming/map found)
+    // =========================
+    {
+      category: "unverified_private",
+      name: "Marquette-area golf course skiing (unverified)",
+      tags: ["Possible", "Ask locally"],
+      skiing: "People sometimes ski on golf courses in winter, but I did not find an official grooming/map source for a specific Marquette County course.",
+      parking: "Depends on course rules; do not assume access is allowed.",
+      pass: "Private property rules apply. Call ahead.",
+      query: "Marquette Michigan golf course",
+      fallback: { lat: 46.5230, lon: -87.4350 },
+      links: [
+        { label: "Marquette County Trail Conditions group (crowd reports)", url: "https://www.facebook.com/groups/1741420516008199/" }
+      ]
+    }
+  ];
+
+
+  // Add all places
+  (async () => {
+    for (const p of places) {
+      try { await addPlace(p); } catch (e) {}
+    }
+  })();
+
+
+  // UI wiring
+  const chkGroomedClassicOnly = document.getElementById("chkGroomedClassicOnly");
+  const chkGroomedClassicSkate = document.getElementById("chkGroomedClassicSkate");
+  const chkSkiableMultiUse = document.getElementById("chkSkiableMultiUse");
+  const chkUnverified = document.getElementById("chkUnverified");
+  const chkTowns = document.getElementById("chkTowns");
+
+
+  function syncLayers() {
+    if (chkGroomedClassicOnly.checked) map.addLayer(layerGroomedClassicOnly); else map.removeLayer(layerGroomedClassicOnly);
+    if (chkGroomedClassicSkate.checked) map.addLayer(layerGroomedClassicSkate); else map.removeLayer(layerGroomedClassicSkate);
+    if (chkSkiableMultiUse.checked) map.addLayer(layerSkiableMultiUse); else map.removeLayer(layerSkiableMultiUse);
+    if (chkUnverified.checked) map.addLayer(layerUnverified); else map.removeLayer(layerUnverified);
+    if (chkTowns.checked) map.addLayer(layerTowns); else map.removeLayer(layerTowns);
+  }
+  [chkGroomedClassicOnly, chkGroomedClassicSkate, chkSkiableMultiUse, chkUnverified, chkTowns]
+    .forEach(el => el.addEventListener("change", syncLayers));
+
+
+  document.getElementById("btnAllOn").addEventListener("click", () => {
+    chkGroomedClassicOnly.checked = chkGroomedClassicSkate.checked = chkSkiableMultiUse.checked = chkUnverified.checked = chkTowns.checked = true;
+    syncLayers();
+  });
+  document.getElementById("btnAllOff").addEventListener("click", () => {
+    chkGroomedClassicOnly.checked = chkGroomedClassicSkate.checked = chkSkiableMultiUse.checked = chkUnverified.checked = chkTowns.checked = false;
+    syncLayers();
+  });
+
+
+  document.getElementById("btnFit").addEventListener("click", () => {
+    // Marquette County-ish bounding box
+    const bounds = L.latLngBounds([46.15, -87.95], [46.95, -87.10]);
+    map.fitBounds(bounds, { padding: [30, 30] });
+  });
+
+
+  document.getElementById("btnMe").addEventListener("click", () => {
+    if (!navigator.geolocation) { alert("Geolocation not available."); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude, lon = pos.coords.longitude;
+        map.setView([lat, lon], 12);
+        L.circleMarker([lat, lon], { radius: 8, weight: 2, fillOpacity: 0.2 })
+          .addTo(map).bindPopup("<b>You are here</b>").openPopup();
+      },
+      (err) => alert("Couldn’t get location: " + err.message),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+    );
+  });
+
+
+  syncLayers();
+</script>
+</body>
+</html>
